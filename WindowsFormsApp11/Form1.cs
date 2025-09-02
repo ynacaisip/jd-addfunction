@@ -25,15 +25,96 @@ namespace WindowsFormsApp11
 
             // ✅ Set DataGridView columns to auto-size
             dataGridView.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            dataGridView.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
+            dataGridView.DefaultCellStyle.WrapMode = DataGridViewTriState.True;
+            dataGridView.RowTemplate.Height = 40;
 
             dataGridView.SelectionChanged += dataGridView_SelectionChanged;
+
+ 
 
 
             // Load existing employees into the grid
             LoadEmployees();
+
+            txtSearch.KeyDown += txtSearch_KeyDown;
+            txtSearch.Leave += txtSearch_Leave;   // ✅ this ensures DataGridView resets when leaving search
+            txtSearch.TextChanged += txtSearch_TextChanged;  // ✅ live search
+
+            dataGridView.KeyDown += dataGridView_KeyDown; //press delete in the DataGridView to DELETE record
+
+        
+
         }
 
-      
+        
+
+
+        private void dataGridView_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Delete) // if user presses Delete key
+            {
+                if (dataGridView.SelectedRows.Count == 0)
+                {
+                    MessageBox.Show("Please select a record to delete.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // Get employee_id of the selected row
+                string empID = dataGridView.SelectedRows[0].Cells["employee_id"].Value.ToString();
+
+                // Ask for confirmation
+                DialogResult result = MessageBox.Show(
+                    "Are you sure you want to delete this record?",
+                    "Confirm Delete",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning
+                );
+
+                if (result == DialogResult.Yes)
+                {
+                    string connStr = "server=localhost;user=root;password=;database=employee_db;";
+
+                    using (MySqlConnection conn = new MySqlConnection(connStr))
+                    {
+                        try
+                        {
+                            conn.Open();
+
+                            string sql = "DELETE FROM employees WHERE employee_id=@employee_id";
+                            MySqlCommand cmd = new MySqlCommand(sql, conn);
+                            cmd.Parameters.AddWithValue("@employee_id", empID);
+
+                            cmd.ExecuteNonQuery();
+
+                            MessageBox.Show("Employee deleted successfully!", "Deleted", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                            ClearFields();    // clear form fields only if deleted
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show("Error deleting employee: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                    }
+                }
+
+                // ✅ Always refresh grid, whether YES or NO
+                LoadEmployees();
+            }
+        }
+
+
+        private void txtSearch_TextChanged(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtSearch.Text))
+            {
+                LoadEmployees(); // show all if search is empty
+            }
+            else
+            {
+                SearchEmployees(); // filter as you type
+            }
+        }
 
         private void dataGridView_SelectionChanged(object sender, EventArgs e)
         {
@@ -162,8 +243,10 @@ namespace WindowsFormsApp11
             if (e.KeyCode == Keys.Enter)
             {
                 e.SuppressKeyPress = true;
-                txtPos.Focus();
-                SaveEmployee(); // call save function directly
+
+                SaveEmployee();   // save record (INSERT or UPDATE)
+                LoadEmployees();  // refresh DataGridView immediately
+                ClearFields();    // clear fields right after saving
             }
         }
 
@@ -178,8 +261,7 @@ namespace WindowsFormsApp11
 
         // 🔹 Centralized Save Logic
         private void SaveEmployee()
-        {
-            // ✅ Check if all fields are filled
+        {   // ✅ Check if all fields are filled
             if (string.IsNullOrWhiteSpace(txtEmployeeID.Text) ||
                 string.IsNullOrWhiteSpace(txtLname.Text) ||
                 string.IsNullOrWhiteSpace(txtFname.Text) ||
@@ -209,10 +291,30 @@ namespace WindowsFormsApp11
                 try
                 {
                     conn.Open();
+                    string sql;
 
-                    string sql = "INSERT INTO employees " +
-                                 "(employee_id, last_name, first_name, middle_name, gender, dob, email, department, position) " +
-                                 "VALUES (@employee_id, @last_name, @first_name, @middle_name, @gender, @dob, @email, @department, @position)";
+                    if (IsEditing)
+                    {
+                        // 🔹 UPDATE existing record
+                        sql = @"UPDATE employees SET 
+                            last_name=@last_name, 
+                            first_name=@first_name, 
+                            middle_name=@middle_name, 
+                            gender=@gender, 
+                            dob=@dob, 
+                            email=@email, 
+                            department=@department, 
+                            position=@position 
+                        WHERE employee_id=@employee_id";
+                    }
+                    else
+                    {
+                        // 🔹 INSERT new record
+                        sql = @"INSERT INTO employees 
+                            (employee_id, last_name, first_name, middle_name, gender, dob, email, department, position) 
+                        VALUES 
+                            (@employee_id, @last_name, @first_name, @middle_name, @gender, @dob, @email, @department, @position)";
+                    }
 
                     MySqlCommand cmd = new MySqlCommand(sql, conn);
                     cmd.Parameters.AddWithValue("@employee_id", txtEmployeeID.Text);
@@ -227,27 +329,24 @@ namespace WindowsFormsApp11
 
                     cmd.ExecuteNonQuery();
 
-                    MessageBox.Show("Employee added successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // ✅ Show message based on mode
+                    if (IsEditing)
+                    {
+                        MessageBox.Show("Employee updated successfully!", "Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    else
+                    {
+                        MessageBox.Show("Employee added successfully!", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
 
-                    // ✅ Clear fields after save
-                    txtEmployeeID.Clear();
-                    txtLname.Clear();
-                    txtFname.Clear();
-                    txtMname.Clear();
-                    cmbGender.SelectedIndex = -1;
-                    dtpBirthday.Value = DateTime.Now;
-                    txtEmail.Clear();
-                    txtDept.Clear();
-                    txtPos.Clear();
-
-                    txtEmployeeID.Focus();
+                    // ✅ Reload grid first, then clear form
+                    LoadEmployees();
+                    ClearFields();
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show("Error: " + ex.Message);
                 }
-                // Refresh DataGridView immediately
-                LoadEmployees();  // <-- THIS IS THE KEY
             }
         }
         private void LoadEmployees()
@@ -263,12 +362,12 @@ namespace WindowsFormsApp11
                     DataTable dt = new DataTable();
                     da.Fill(dt);
 
-                    if (dt.Rows.Count == 0)
-                    {
-                        MessageBox.Show("No records found in the database.");
-                    }
+                    // Temporarily disable SelectionChanged so it won't refill fields
+                    dataGridView.SelectionChanged -= dataGridView_SelectionChanged;
+                    dataGridView.DataSource = dt;
+                    dataGridView.ClearSelection(); // ensure no row is selected
+                    dataGridView.SelectionChanged += dataGridView_SelectionChanged;
 
-                    dataGridView.DataSource = dt; // bind to grid
                 }
                 catch (Exception ex)
                 {
@@ -277,19 +376,7 @@ namespace WindowsFormsApp11
             }
         }
 
-        private void btnSearch_Click(object sender, EventArgs e)
-        {
-            SearchEmployees();
-        }
-
-        private void btnSearch_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Enter)
-            {
-                e.SuppressKeyPress = true;   // prevent ding sound
-                btnSearch.PerformClick();    // trigger the Search button click
-            }
-        }
+        
 
         private void SearchEmployees()
         {
@@ -327,117 +414,29 @@ namespace WindowsFormsApp11
         }
 
 
-
-        private void btnUpdate_Click(object sender, EventArgs e)
+        private void txtSearch_KeyDown(object sender, KeyEventArgs e)
         {
-            if (dataGridView.SelectedRows.Count == 0)
+            if (e.KeyCode == Keys.Enter)
             {
-                MessageBox.Show("Please select a record to update.");
-                return;
-            }
+                e.SuppressKeyPress = true;
 
-            string empID = dataGridView.SelectedRows[0].Cells["employee_id"].Value.ToString();
-
-            string connStr = "server=localhost;user=root;password=;database=employee_db;";
-            using (MySqlConnection conn = new MySqlConnection(connStr))
-            {
-                try
+                if (string.IsNullOrWhiteSpace(txtSearch.Text))
                 {
-                    conn.Open();
-                    string sql = "UPDATE employees SET last_name=@last_name, first_name=@first_name, middle_name=@middle_name, " +
-                                 "gender=@gender, dob=@dob, email=@email, department=@department, position=@position " +
-                                 "WHERE employee_id=@employee_id";
-
-                    MySqlCommand cmd = new MySqlCommand(sql, conn);
-                    cmd.Parameters.AddWithValue("@employee_id", empID);
-                    cmd.Parameters.AddWithValue("@last_name", txtLname.Text);
-                    cmd.Parameters.AddWithValue("@first_name", txtFname.Text);
-                    cmd.Parameters.AddWithValue("@middle_name", txtMname.Text);
-                    cmd.Parameters.AddWithValue("@gender", cmbGender.Text);
-                    cmd.Parameters.AddWithValue("@dob", dtpBirthday.Value);
-                    cmd.Parameters.AddWithValue("@email", txtEmail.Text);
-                    cmd.Parameters.AddWithValue("@department", txtDept.Text);
-                    cmd.Parameters.AddWithValue("@position", txtPos.Text);
-
-                    cmd.ExecuteNonQuery();
-
-                    MessageBox.Show("Employee updated successfully!");
-
-                    // 🔹 Update only the selected row in the DataGridView
-                    DataGridViewRow row = dataGridView.SelectedRows[0];
-                    row.Cells["last_name"].Value = txtLname.Text;
-                    row.Cells["first_name"].Value = txtFname.Text;
-                    row.Cells["middle_name"].Value = txtMname.Text;
-                    row.Cells["gender"].Value = cmbGender.Text;
-                    row.Cells["dob"].Value = dtpBirthday.Value;
-                    row.Cells["email"].Value = txtEmail.Text;
-                    row.Cells["department"].Value = txtDept.Text;
-                    row.Cells["position"].Value = txtPos.Text;
-
-                    // ✅ No need to reload the whole DataGridView
+                    // If search box is empty, just reload all employees
+                    LoadEmployees();
                 }
-                catch (Exception ex)
+                else
                 {
-                    MessageBox.Show("Error updating employee: " + ex.Message);
+                    // Show only filtered results
+                    SearchEmployees();
                 }
             }
         }
 
-        private void btnDelete_Click(object sender, EventArgs e)
+        private void txtSearch_Leave(object sender, EventArgs e)
         {
-            // Make sure a row is selected
-            if (dataGridView.SelectedRows.Count == 0)
-            {
-                MessageBox.Show("Please select a record to delete.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            // Get the selected employee's ID
-            string empID = dataGridView.SelectedRows[0].Cells["employee_id"].Value.ToString();
-
-            // Confirm deletion
-            DialogResult result = MessageBox.Show(
-                "Are you sure you want to delete this record?",
-                "Confirm Delete",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning
-            );
-
-            if (result == DialogResult.Yes)
-            {
-                string connStr = "server=localhost;user=root;password=;database=employee_db;";
-
-                using (MySqlConnection conn = new MySqlConnection(connStr))
-                {
-                    try
-                    {
-                        conn.Open();
-
-                        string sql = "DELETE FROM employees WHERE employee_id=@employee_id";
-                        MySqlCommand cmd = new MySqlCommand(sql, conn);
-                        cmd.Parameters.AddWithValue("@employee_id", empID);
-
-                        cmd.ExecuteNonQuery();
-
-                        MessageBox.Show("Employee deleted successfully!", "Deleted", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                        // Refresh the DataGridView
-                        LoadEmployees();
-
-                        // Clear input fields
-                        ClearFields();
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show("Error deleting employee: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
-            }
-        }
-
-        private void btnRefresh_Click(object sender, EventArgs e)
-        {
-            LoadEmployees(); // reload data into DataGridView
+            txtSearch.Clear();    // clear the search box
+            LoadEmployees();      // reset DataGridView to show all records
         }
     }
 }

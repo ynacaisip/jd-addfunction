@@ -31,7 +31,7 @@ namespace WindowsFormsApp11
 
             dataGridView.SelectionChanged += dataGridView_SelectionChanged;
 
- 
+
 
 
             // Load existing employees into the grid
@@ -43,11 +43,39 @@ namespace WindowsFormsApp11
 
             dataGridView.KeyDown += dataGridView_KeyDown; //press delete in the DataGridView to DELETE record
 
-        
+            LoadDepartments();   // 🔹 load department names from MySQL
+
 
         }
 
-        
+
+        private void LoadDepartments()
+        {
+            string connStr = "server=localhost;user=root;password=;database=employee_db;";
+            using (MySqlConnection conn = new MySqlConnection(connStr))
+            {
+                try
+                {
+                    conn.Open();
+                    string sql = "SELECT dept_name FROM departments ORDER BY dept_name";
+                    MySqlCommand cmd = new MySqlCommand(sql, conn);
+                    MySqlDataReader reader = cmd.ExecuteReader();
+
+                    cmbDept.Items.Clear();
+                    while (reader.Read())
+                    {
+                        cmbDept.Items.Add(reader["dept_name"].ToString());
+                    }
+
+                    if (cmbDept.Items.Count > 0)
+                        cmbDept.SelectedIndex = 0;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error loading departments: " + ex.Message);
+                }
+            }
+        }
 
 
         private void dataGridView_KeyDown(object sender, KeyEventArgs e)
@@ -100,6 +128,8 @@ namespace WindowsFormsApp11
 
                 // ✅ Always refresh grid, whether YES or NO
                 LoadEmployees();
+                LoadDepartments(); // 🔹 refresh department list after delete
+
             }
         }
 
@@ -129,7 +159,7 @@ namespace WindowsFormsApp11
                 cmbGender.Text = row.Cells["gender"].Value.ToString();
                 dtpBirthday.Value = Convert.ToDateTime(row.Cells["dob"].Value);
                 txtEmail.Text = row.Cells["email"].Value.ToString();
-                txtDept.Text = row.Cells["department"].Value.ToString();
+                cmbDept.Text = row.Cells["department"].Value.ToString(); // 🔹 use ComboBox now
                 txtPos.Text = row.Cells["position"].Value.ToString();
             }
         }
@@ -142,13 +172,13 @@ namespace WindowsFormsApp11
             cmbGender.SelectedIndex = -1;
             dtpBirthday.Value = DateTime.Now;
             txtEmail.Clear();
-            txtDept.Clear();
+            cmbDept.SelectedIndex = -1; // 🔹 reset ComboBox
             txtPos.Clear();
             txtEmployeeID.Focus();
             IsEditing = false; // back to adding new record
         }
 
-       
+
 
         private void txtEmployeeID_KeyDown(object sender, KeyEventArgs e)
         {
@@ -220,7 +250,7 @@ namespace WindowsFormsApp11
                     return;
                 }
                 // If valid → go to next field
-                txtDept.Focus();
+                cmbDept.Focus();
             }
         }
 
@@ -261,14 +291,15 @@ namespace WindowsFormsApp11
 
         // 🔹 Centralized Save Logic
         private void SaveEmployee()
-        {   // ✅ Check if all fields are filled
+        {
+            // ✅ Check if all fields are filled
             if (string.IsNullOrWhiteSpace(txtEmployeeID.Text) ||
                 string.IsNullOrWhiteSpace(txtLname.Text) ||
                 string.IsNullOrWhiteSpace(txtFname.Text) ||
                 string.IsNullOrWhiteSpace(txtMname.Text) ||
                 string.IsNullOrWhiteSpace(cmbGender.Text) ||
                 string.IsNullOrWhiteSpace(txtEmail.Text) ||
-                string.IsNullOrWhiteSpace(txtDept.Text) ||
+               string.IsNullOrWhiteSpace(cmbDept.Text) || // 🔹 ComboBox check
                 string.IsNullOrWhiteSpace(txtPos.Text))
             {
                 return; // don’t save if incomplete
@@ -324,12 +355,11 @@ namespace WindowsFormsApp11
                     cmd.Parameters.AddWithValue("@gender", cmbGender.Text);
                     cmd.Parameters.AddWithValue("@dob", dtpBirthday.Value);
                     cmd.Parameters.AddWithValue("@email", txtEmail.Text);
-                    cmd.Parameters.AddWithValue("@department", txtDept.Text);
+                    cmd.Parameters.AddWithValue("@department", cmbDept.Text); // 🔹 use ComboBox
                     cmd.Parameters.AddWithValue("@position", txtPos.Text);
 
                     cmd.ExecuteNonQuery();
 
-                    // ✅ Show message based on mode
                     if (IsEditing)
                     {
                         MessageBox.Show("Employee updated successfully!", "Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -339,9 +369,11 @@ namespace WindowsFormsApp11
                         MessageBox.Show("Employee added successfully!", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
 
-                    // ✅ Reload grid first, then clear form
-                    LoadEmployees();
+                    // ✅ Clear fields after save
                     ClearFields();
+
+                    // Refresh DataGridView
+                    LoadEmployees();
                 }
                 catch (Exception ex)
                 {
@@ -349,6 +381,7 @@ namespace WindowsFormsApp11
                 }
             }
         }
+
         private void LoadEmployees()
         {
             string connStr = "server=localhost;user=root;password=;database=employee_db;";
@@ -376,7 +409,7 @@ namespace WindowsFormsApp11
             }
         }
 
-        
+
 
         private void SearchEmployees()
         {
@@ -437,6 +470,15 @@ namespace WindowsFormsApp11
         {
             txtSearch.Clear();    // clear the search box
             LoadEmployees();      // reset DataGridView to show all records
+        }
+
+        private void cmbDept_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                txtPos.Focus();
+            }
         }
     }
 }
